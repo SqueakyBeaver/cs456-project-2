@@ -1,8 +1,9 @@
 langchain
 langchain-chroma
+langchain-community
 langchain-google-genai
-langchain-google-vertexai
 langchain-text-splitters
 llama-parse
 llama-index
 streamlit
+validators

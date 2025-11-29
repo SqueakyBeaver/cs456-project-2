@@ -1,8 +1,28 @@
 import os
 
 import streamlit as st
+import validators
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+
 from agent import Agent
+
+
+def validate_url(url: str):
+    """Validates url, does not need url to have https:// as the begininng"""
+    try:
+        validators.url(url)
+        return True
+    except validators.ValidationError as _:
+        pass
+
+    try:
+        validators.url(f"https://{url}")
+        return True
+    except validators.ValidationError as _:
+        pass
+
+    return False
+
 
 try:
     assert st.secrets.has_key("GEMINI_API_KEY"), (
@@ -21,38 +41,49 @@ print("Initializing agent")
 agent = Agent(gemini_api_key, llamaidx_api_key)
 print("Agent initialized")
 
-st.title("AI Chatbot thingy i have no idea what to call this")
+left, center, right = st.columns(3)
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+with right:
+    st.title("Sources")
+    # List sources here with checkboxes and stuff
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    st.subheader("Files")
+    if src_files := st.file_uploader(
+        "Upload a file here to use it as a source", accept_multiple_files=True
+    ):
+        agent.vector_store.add_files(src_files)
 
-with st.container():
+    st.subheader("URLs")
+    if src_url := st.text_input(
+        "Enter a URL to a webpage or file here to use it as a source.",
+        autocomplete="url",
+    ):
+        if validate_url(src_url):
+            agent.vector_store.add_urls([src_url])
+        else:
+            st.error("Incorrect URL format.")
+
+
+with center:
+    st.title("Ask Away")
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    st.write("Files uploaded here will not be used as sources for other prompts")
     if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
         files: list[UploadedFile] = user_input["files"]  # type: ignore
         prompt: str = user_input["text"]  # type: ignore
 
-        urls = []
-        if st.session_state.urls_input:
-            urls = [
-                url.strip()
-                for url in st.session_state.urls_input.strip().split("\n")
-                if url.strip()
-            ]
-
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-            if urls:
-                st.markdown("**URL Sources:**")
-                # Using markdown to "highlight" the URLs
-                for url in urls:
-                    st.markdown(f"- `{url}`")
 
-        retrieved_docs, response = agent.new_prompt(prompt, files, urls)
+        retrieved_docs, response = agent.new_prompt(prompt, files)
 
         with st.chat_message("assistant"):
             full_response = st.write_stream(response)
@@ -73,9 +104,3 @@ with st.container():
         st.session_state.messages.append(
             {"role": "assistant", "content": full_response}
         )
-    st.text_area(
-        label="Websites to use as sources (one per line)",
-        height=100,
-        key="urls_input",
-        placeholder="Enter one URL per line...",
-    )

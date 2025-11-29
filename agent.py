@@ -18,13 +18,11 @@ class Agent:
         self.model = ChatGoogleGenerativeAI(
             model="gemini-2.5-pro", api_key=gemini_api_key
         )
-        self.vector_store = VectorStoreHelper(gemini_api_key, llamaidx_api_key)
+        self.vector_store = VectorStoreHelper(gemini_api_key, llamaidx_api_key, self.model)
 
-    def new_prompt(self, text: str, files: Sequence[IO[bytes]], urls: list[str]):
+    def new_prompt(self, text: str, files: Sequence[IO[bytes]]):
         if files:
             self.vector_store.add_files(files)
-        if urls:
-            self.vector_store.add_urls(urls)
 
         retrieved_docs = self.vector_store.similarity_search(text, k=2)
         # Build a docs content block that includes a short source header for
