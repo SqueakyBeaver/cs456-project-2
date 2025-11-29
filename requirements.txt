@@ -1,0 +1,7 @@
+langchain
+langchain-chroma
+langchain-google-genai
+langchain-google-vertexai
+langchain-text-splitters
+llama-parse
+streamlit
