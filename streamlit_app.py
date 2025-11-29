@@ -1,9 +1,8 @@
 import os
 
 import streamlit as st
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from vector_store import VectorStoreHelper
+from streamlit.runtime.uploaded_file_manager import UploadedFile
+from agent import Agent
 
 try:
     assert st.secrets.has_key("GEMINI_API_KEY"), (
@@ -18,21 +17,11 @@ except Exception as e:
     print(e)
     exit(1)
 
-
-def generate_response(input_text):
-    model = ChatGoogleGenerativeAI(model="gemini-2.5-pro", api_key=gemini_api_key)
-    st.info(model.invoke(input_text))
-
+print("Initializing agent")
+agent = Agent(gemini_api_key, llamaidx_api_key)
+print("Agent initialized")
 
 st.title("AI Chatbot thingy i have no idea what to call this")
-
-vector_store = VectorStoreHelper(gemini_api_key, llamaidx_api_key)
-
-# if uploaded_files := st.file_uploader(
-#     "Add files for context", accept_multiple_files=True
-# ):
-#     vector_store.add_files(uploaded_files)
-
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -41,13 +30,52 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
-    if files := user_input["files"]:
-        vector_store.add_files(files)  # type: ignore
-    
-    prompt = user_input["text"]
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+with st.container():
+    if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
+        files: list[UploadedFile] = user_input["files"]  # type: ignore
+        prompt: str = user_input["text"]  # type: ignore
 
-    st.session_state.messages.append({"role": "assistant", "content": "ur mom"})
+        urls = []
+        if st.session_state.urls_input:
+            urls = [
+                url.strip()
+                for url in st.session_state.urls_input.strip().split("\n")
+                if url.strip()
+            ]
+
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+            if urls:
+                st.markdown("**URL Sources:**")
+                # Using markdown to "highlight" the URLs
+                for url in urls:
+                    st.markdown(f"- `{url}`")
+
+        retrieved_docs, response = agent.new_prompt(prompt, files, urls)
+
+        with st.chat_message("assistant"):
+            full_response = st.write_stream(response)
+            # Show retrieved chunks and their sources below the assistant response
+            if retrieved_docs:
+                st.markdown("**Retrieved sources:**")
+                for d, score in retrieved_docs:
+                    src = (
+                        d.metadata.get("file")
+                        or d.metadata.get("source")
+                        or "unknown file (probably a db error)"
+                    )
+                    page = d.metadata.get("page") or "unknown page"
+                    header = f"- `{src} (page {page})` ({score:.2f}% relevant)"
+
+                    st.markdown(header)
+
+        st.session_state.messages.append(
+            {"role": "assistant", "content": full_response}
+        )
+    st.text_area(
+        label="Websites to use as sources (one per line)",
+        height=100,
+        key="urls_input",
+        placeholder="Enter one URL per line...",
+    )
