@@ -9,14 +9,16 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from llama_index.core import SimpleDirectoryReader
 from llama_parse import LlamaParse
-from sqlalchemy import create_engine
+from sqlalchemy import Engine
 from sqlalchemy.orm import sessionmaker
 
-from database import Base, SourceItem, SourceType
+from database import Base, FileItem, SourceType
 
 
 class VectorStoreHelper:
-    def __init__(self, gemini_api_key, llama_idx_key, model: BaseChatModel):
+    def __init__(
+        self, gemini_api_key, llama_idx_key, model: BaseChatModel, engine: Engine
+    ):
         self.parser = LlamaParse(
             api_key=llama_idx_key,
         )
@@ -31,7 +33,6 @@ class VectorStoreHelper:
         )
         self.model = model
 
-        engine = create_engine("sqlite:///sources.sqlite")
         Base.metadata.create_all(engine)
         self.db_session = sessionmaker(bind=engine)
 
@@ -47,7 +48,7 @@ class VectorStoreHelper:
 
                 fnames.append(path)
 
-                source_item = SourceItem(name=i.name, path=path, type=SourceType.FILE)
+                source_item = FileItem(name=i.name, path=path, type=SourceType.FILE)
                 session.add(source_item)
                 session.commit()
                 source_items[i.name] = source_item.id
@@ -124,8 +125,8 @@ class VectorStoreHelper:
                         + i.page_content
                     ).content
                 )
-                
-                source_item = SourceItem(
+
+                source_item = FileItem(
                     title=i.metadata["title"],
                     path=i.metadata["source"],
                     type=SourceType.WEBPAGE,

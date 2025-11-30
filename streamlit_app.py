@@ -1,28 +1,12 @@
 import os
 
 import streamlit as st
-import validators
-from streamlit.runtime.uploaded_file_manager import UploadedFile
-
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+import nest_asyncio
 from agent import Agent
-
-
-def validate_url(url: str):
-    """Validates url, does not need url to have https:// as the begininng"""
-    try:
-        validators.url(url)
-        return True
-    except validators.ValidationError as _:
-        pass
-
-    try:
-        validators.url(f"https://{url}")
-        return True
-    except validators.ValidationError as _:
-        pass
-
-    return False
-
+from chat import chat_page
+from database import Base, delete_chat, get_chats, new_chat
 
 try:
     assert st.secrets.has_key("GEMINI_API_KEY"), (
@@ -35,76 +19,51 @@ try:
     llamaidx_api_key = os.environ["LLAMAINDEX_API_KEY"]
 except Exception as e:
     print(e)
-    exit(1)
+    st.stop()
+
+
+
+print("Initializing DB connection")
+engine = create_engine("sqlite:///app_data.sqlite")
+Base.metadata.create_all(engine)
+db_session = Session(engine)
+print("DB connection initialized")
 
 print("Initializing agent")
-agent = Agent(gemini_api_key, llamaidx_api_key)
+agent = Agent(gemini_api_key, llamaidx_api_key, engine)
 print("Agent initialized")
 
+# Get largest chat id from db
+st.session_state.chats = get_chats(db_session)
+if not st.session_state.chats:
+    new_chat(db_session, title="First chat")
+    st.session_state.chats = get_chats(db_session)
 
-@st.dialog("Add Sources", width="large")
-def add_sources():
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Files")
-        if src_files := st.file_uploader(
-            "Upload a file here to use it as a source", accept_multiple_files=True
-        ):
-            agent.vector_store.add_files(src_files)
-
-    with right:
-        st.subheader("URLs")
-        if src_url := st.text_input(
-            "Enter a URL to a webpage or file here to use it as a source.",
-            autocomplete="url",
-        ):
-            if validate_url(src_url):
-                x = agent.vector_store.add_urls([src_url])
-                x
-            else:
-                st.error("Incorrect URL format.")
+last_chat_id = max([i.id for i in st.session_state.chats])
 
 
-st.title("Ask Away")
+@st.fragment
+def chat_list():
+    with st.container(gap=None, height=400, border=False):
+        for chat in st.session_state.chats:
+            container = st.container(
+                horizontal=True, vertical_alignment="center", gap=None
+            )
+            container.page_link(chat_page(chat, agent))
+            if container.button(
+                "", icon=":material/close:", type="tertiary", key=f"{chat}"
+            ):
+                delete_chat(db_session, chat)
+                st.session_state.chats = get_chats(db_session)
+                st.rerun(scope="fragment")
 
-with st.container(horizontal=True):
-    num_enabled_sources = 16
-    if st.button(f"{num_enabled_sources} sources enabled. Click to add/manage sources"):
-        add_sources()
+        if st.button("New chat", width="stretch"):
+            new_chat(db_session, title=f"New Chat {last_chat_id + 1}")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+            st.session_state.chats = get_chats(db_session)
+            # force a rerun so components are rebuilt with updated chats
+            st.rerun(scope="fragment")
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
 
-if user_input := st.chat_input(
-    "What can I help with?", accept_file="multiple", key="chat"
-):
-    files: list[UploadedFile] = user_input["files"]  # type: ignore
-    prompt: str = user_input["text"]  # type: ignore
-
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    retrieved_docs, response = agent.new_prompt(prompt, files)
-
-    with st.chat_message("assistant"):
-        full_response = st.write_stream(response)
-        # Show retrieved chunks and their sources below the assistant response
-        if retrieved_docs:
-            st.markdown("**Retrieved sources:**")
-            for d, score in retrieved_docs:
-                src = (
-                    d.metadata.get("file")
-                    or d.metadata.get("source")
-                    or "unknown file (probably a db error)"
-                )
-                page = d.metadata.get("page") or "unknown page"
-                header = f"- `{src} (page {page})` ({score:.2f}% relevant)"
-
-                st.markdown(header)
-
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+with st.sidebar:
+    chat_list()

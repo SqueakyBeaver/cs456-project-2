@@ -5,5 +5,6 @@ langchain-google-genai
 langchain-text-splitters
 llama-parse
 llama-index
+nest_asyncio
 streamlit
 validators

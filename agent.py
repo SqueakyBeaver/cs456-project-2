@@ -8,6 +8,7 @@ from langchain.agents.middleware import (
 from langchain_core.documents import Document
 from langchain_core.messages import FileContentBlock, HumanMessage, TextContentBlock
 from langchain_google_genai import ChatGoogleGenerativeAI
+from sqlalchemy import Engine
 
 from vector_store import VectorStoreHelper
 
@@ -23,12 +24,15 @@ class State(AgentState):
 
 
 class Agent:
-    def __init__(self, gemini_api_key, llamaidx_api_key):
+    def __init__(self, gemini_api_key, llamaidx_api_key, engine: Engine):
         self.model = ChatGoogleGenerativeAI(
             model="gemini-2.5-pro", api_key=gemini_api_key
         )
         self.vector_store = VectorStoreHelper(
-            gemini_api_key, llamaidx_api_key, self.model
+            gemini_api_key,
+            llamaidx_api_key,
+            self.model,
+            engine,
         )
 
     def new_prompt(self, text: str, files: Sequence[IO[bytes]]):
