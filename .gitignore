@@ -3,3 +3,4 @@
 secrets.toml
 chroma_langchain_db
 __pycache__
+*.sqlite
