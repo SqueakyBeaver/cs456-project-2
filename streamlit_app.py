@@ -41,9 +41,7 @@ print("Initializing agent")
 agent = Agent(gemini_api_key, llamaidx_api_key)
 print("Agent initialized")
 
-left, center, right = st.columns(3)
-
-with right:
+with st.sidebar:
     st.title("Sources")
     # List sources here with checkboxes and stuff
 
@@ -59,48 +57,48 @@ with right:
         autocomplete="url",
     ):
         if validate_url(src_url):
-            agent.vector_store.add_urls([src_url])
+            x = agent.vector_store.add_urls([src_url])
+            x
         else:
             st.error("Incorrect URL format.")
 
 
-with center:
-    st.title("Ask Away")
+st.title("Ask Away")
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-    st.write("Files uploaded here will not be used as sources for other prompts")
-    if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
-        files: list[UploadedFile] = user_input["files"]  # type: ignore
-        prompt: str = user_input["text"]  # type: ignore
+st.write("Files uploaded here will not be used as sources for other prompts")
+if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
+    files: list[UploadedFile] = user_input["files"]  # type: ignore
+    prompt: str = user_input["text"]  # type: ignore
 
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        retrieved_docs, response = agent.new_prompt(prompt, files)
+    retrieved_docs, response = agent.new_prompt(prompt, files)
 
-        with st.chat_message("assistant"):
-            full_response = st.write_stream(response)
-            # Show retrieved chunks and their sources below the assistant response
-            if retrieved_docs:
-                st.markdown("**Retrieved sources:**")
-                for d, score in retrieved_docs:
-                    src = (
-                        d.metadata.get("file")
-                        or d.metadata.get("source")
-                        or "unknown file (probably a db error)"
-                    )
-                    page = d.metadata.get("page") or "unknown page"
-                    header = f"- `{src} (page {page})` ({score:.2f}% relevant)"
+    with st.chat_message("assistant"):
+        full_response = st.write_stream(response)
+        # Show retrieved chunks and their sources below the assistant response
+        if retrieved_docs:
+            st.markdown("**Retrieved sources:**")
+            for d, score in retrieved_docs:
+                src = (
+                    d.metadata.get("file")
+                    or d.metadata.get("source")
+                    or "unknown file (probably a db error)"
+                )
+                page = d.metadata.get("page") or "unknown page"
+                header = f"- `{src} (page {page})` ({score:.2f}% relevant)"
 
-                    st.markdown(header)
+                st.markdown(header)
 
-        st.session_state.messages.append(
-            {"role": "assistant", "content": full_response}
-        )
+    st.session_state.messages.append(
+        {"role": "assistant", "content": full_response}
+    )

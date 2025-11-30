@@ -163,6 +163,7 @@ class VectorStoreHelper:
             )
 
         self.vector_store.add_documents(all_splits)
+        return docs
 
     def similarity_search(self, query: str, k=4):
         return self.vector_store.similarity_search_with_relevance_scores(query, k=k)
