@@ -28,8 +28,8 @@ try:
     assert st.secrets.has_key("GEMINI_API_KEY"), (
         "Missing Gemini API key in .streamlit/secrets.toml"
     )
-    assert st.secrets.has_key("UNSTRUCTURED_API_KEY"), (
-        "Missing Unstructured API key in .streamlit/secrets.toml"
+    assert st.secrets.has_key("LLAMAINDEX_API_KEY"), (
+        "Missing Llamaparse API key in .streamlit/secrets.toml"
     )
     gemini_api_key = st.secrets.GEMINI_API_KEY
     llamaidx_api_key = os.environ["LLAMAINDEX_API_KEY"]
@@ -41,29 +41,36 @@ print("Initializing agent")
 agent = Agent(gemini_api_key, llamaidx_api_key)
 print("Agent initialized")
 
-with st.sidebar:
-    st.title("Sources")
-    # List sources here with checkboxes and stuff
 
-    st.subheader("Files")
-    if src_files := st.file_uploader(
-        "Upload a file here to use it as a source", accept_multiple_files=True
-    ):
-        agent.vector_store.add_files(src_files)
+@st.dialog("Add Sources", width="large")
+def add_sources():
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Files")
+        if src_files := st.file_uploader(
+            "Upload a file here to use it as a source", accept_multiple_files=True
+        ):
+            agent.vector_store.add_files(src_files)
 
-    st.subheader("URLs")
-    if src_url := st.text_input(
-        "Enter a URL to a webpage or file here to use it as a source.",
-        autocomplete="url",
-    ):
-        if validate_url(src_url):
-            x = agent.vector_store.add_urls([src_url])
-            x
-        else:
-            st.error("Incorrect URL format.")
+    with right:
+        st.subheader("URLs")
+        if src_url := st.text_input(
+            "Enter a URL to a webpage or file here to use it as a source.",
+            autocomplete="url",
+        ):
+            if validate_url(src_url):
+                x = agent.vector_store.add_urls([src_url])
+                x
+            else:
+                st.error("Incorrect URL format.")
 
 
 st.title("Ask Away")
+
+with st.container(horizontal=True):
+    num_enabled_sources = 16
+    if st.button(f"{num_enabled_sources} sources enabled. Click to add/manage sources"):
+        add_sources()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -72,8 +79,9 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-st.write("Files uploaded here will not be used as sources for other prompts")
-if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
+if user_input := st.chat_input(
+    "What can I help with?", accept_file="multiple", key="chat"
+):
     files: list[UploadedFile] = user_input["files"]  # type: ignore
     prompt: str = user_input["text"]  # type: ignore
 
@@ -99,6 +107,4 @@ if user_input := st.chat_input("What can I help with?", accept_file="multiple"):
 
                 st.markdown(header)
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": full_response}
-    )
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
