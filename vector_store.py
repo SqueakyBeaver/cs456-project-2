@@ -10,17 +10,14 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from llama_index.core import SimpleDirectoryReader
 from llama_parse import LlamaParse
-from sqlalchemy import Engine
-from sqlalchemy.orm import sessionmaker
 from streamlit.elements.lib.mutable_status_container import StatusContainer
 
-from database import Base, FileItem, SourceType
+import database
+from database import FileItem, SourceType
 
 
 class VectorStoreHelper:
-    def __init__(
-        self, gemini_api_key, llama_idx_key, model: BaseChatModel, engine: Engine
-    ):
+    def __init__(self, gemini_api_key, llama_idx_key, model: BaseChatModel):
         self.parser = LlamaParse(
             api_key=llama_idx_key,
         )
@@ -35,8 +32,7 @@ class VectorStoreHelper:
         )
         self.model = model
 
-        Base.metadata.create_all(engine)
-        self.db_session = sessionmaker(bind=engine, expire_on_commit=False)
+        self.db_session = database.db_session
 
     def add_files(self, files: Sequence[IO[bytes]], status: StatusContainer):
         fnames = []
@@ -44,25 +40,23 @@ class VectorStoreHelper:
 
         status.update(label="Receiving File")
 
-        with self.db_session() as session:
-            for i in files:
-                path = f"uploads/{i.name}"
-                with open(path, "wb") as file:
-                    file.write(i.read())
+        for i in files:
+            path = f"uploads/{i.name}"
+            with open(path, "wb") as file:
+                file.write(i.read())
 
-                fnames.append(path)
+            fnames.append(path)
 
-                i.seek(0)
+            i.seek(0)
 
-                source_item = FileItem(
-                    title=i.name,
-                    path=path,
-                    type=SourceType.FILE,
-                    raw_bytes=i.read(),
-                )
-                session.add(source_item)
-                session.commit()
-                source_items[i.name] = source_item
+            source_item = FileItem(
+                title=i.name,
+                path=path,
+                type=SourceType.FILE,
+                raw_bytes=i.read(),
+            )
+            self.db_session.add(source_item)
+            source_items[i.name] = source_item
 
         status.update(label="Retrieving text from file. This may take a moment")
 
@@ -108,6 +102,7 @@ class VectorStoreHelper:
 
         self.vector_store.add_documents(all_splits)
 
+        self.db_session.commit()
         return list(source_items.values())
 
     def add_urls(self, urls: list[str], status: StatusContainer):

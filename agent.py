@@ -8,16 +8,10 @@ from langchain.agents.middleware import (
 from langchain_core.documents import Document
 from langchain_core.messages import FileContentBlock, HumanMessage, TextContentBlock
 from langchain_google_genai import ChatGoogleGenerativeAI
-from sqlalchemy import Engine
+from llama_parse import LlamaParse
 
 from database import FileItem
 from vector_store import VectorStoreHelper
-
-
-def get_mime_type_from_filename(filename):
-    # mimetypes.guess_type returns a tuple: (type, encoding)
-    mime_type, _ = mimetypes.guess_type(filename)
-    return mime_type if mime_type else "application/octet-stream"  # Default fallback
 
 
 class State(AgentState):
@@ -25,7 +19,7 @@ class State(AgentState):
 
 
 class Agent:
-    def __init__(self, gemini_api_key, llamaidx_api_key, engine: Engine):
+    def __init__(self, gemini_api_key, llamaidx_api_key):
         self.model = ChatGoogleGenerativeAI(
             model="gemini-2.5-pro", api_key=gemini_api_key
         )
@@ -33,8 +27,77 @@ class Agent:
             gemini_api_key,
             llamaidx_api_key,
             self.model,
-            engine,
         )
+        self.file_parser = LlamaParse(api_key=llamaidx_api_key)
+
+    def create_file_block(
+        self, file: IO[bytes] | None = None, file_item: FileItem | None = None
+    ):
+        # mimetypes.guess_type returns a tuple: (type, encoding)
+        if file:
+            name = file.name
+        elif file_item:
+            name = file_item.path
+        mime_type, _ = mimetypes.guess_type(name)  # type:ignore
+        gemini_supported_mimetypes = [
+            # Images
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/heic",
+            "image/heif",
+            # Audio
+            "audio/aac",
+            "audio/flac",
+            "audio/mp3",
+            "audio/m4a",
+            "audio/mpeg",
+            "audio/mpga",
+            "audio/mp4",
+            "audio/ogg",
+            "audio/pcm",
+            "audio/wav",
+            "audio/webm",
+            # Video
+            "video/x-flv",
+            "video/quicktime",
+            "video/mpeg",
+            "video/mpegs",
+            "video/mpg",
+            "video/mp4",
+            "video/webm",
+            "video/wmv",
+            "video/3gpp",
+            # Documents/Text
+            "application/pdf",
+            "text/plain",
+        ]
+
+        if file:
+            file.seek(0)
+            raw_bytes = file.read()
+        elif file_item:
+            raw_bytes = file_item.raw_bytes
+
+        if mime_type not in gemini_supported_mimetypes:
+            docs = self.file_parser.load_data(raw_bytes, extra_info={"file_name": name})
+
+            return [
+                FileContentBlock(
+                    type="file",
+                    base64=base64.b64encode(i.text.encode()).decode(),
+                    mime_type="text/plain",
+                )
+                for i in docs
+            ]
+
+        return [
+            FileContentBlock(
+                type="file",
+                base64=base64.b64encode(raw_bytes).decode(),
+                mime_type=mime_type,
+            )
+        ]
 
     def new_prompt(self, text: str, files: Sequence[IO[bytes]]):
         retrieved_docs = self.vector_store.similarity_search(text, k=2)
@@ -67,14 +130,7 @@ class Agent:
                 print("Empty file")
                 continue
 
-            b64 = base64.b64encode(raw).decode()
-            file_blocks.append(
-                FileContentBlock(
-                    type="file",
-                    base64=b64,
-                    mime_type=get_mime_type_from_filename(i.name),
-                )
-            )
+            file_blocks += self.create_file_block(i)
 
         return retrieved_docs, self.model.stream(
             [
@@ -88,16 +144,28 @@ class Agent:
         )
 
     def summarize(self, files: Sequence[FileItem]):
-        file_blocks = [
-            FileContentBlock(
-                type="file",
-                base64=base64.b64encode(i.raw_bytes).decode(),
-                mime_type=get_mime_type_from_filename(i.title),
-            )
-            for i in files
-        ]
+        file_blocks = []
+        for i in files:
+            file_blocks += self.create_file_block(file_item=i)
 
-        prompt = ""
+        prompt = """
+        You will be given one or more files (PDF, TXT, DOCX, Markdown, or other text-based formats). Your task is to produce a clear, accurate, and concise summary of the combined contents. Follow these rules:
+        Read all provided files and treat them as a unified information set.
+        Identify the key ideas, major topics, important data points, and recurring themes.
+        Do not include unnecessary detail—focus on essential information only.
+        Preserve meaning: ensure the summary reflects the original content without introducing new assumptions.
+        If the files contain multiple topics, organize the summary with logical sections or bullet points.
+        If any file is unreadable or empty, state this clearly but continue summarizing the rest.
+        IMPORTANT: If you reference any currency values or dollar amounts, you must escape all dollar signs by prefixing them with a backslash (\\$).
+        Example: write \\$1500 instead of $1500.
+        Apply this everywhere a dollar sign would appear, including inside code blocks.
+        Do not mention file formats unless relevant to content.
+        Output format:
+        A concise overall summary (1–3 paragraphs).
+        Followed by bullet-point highlights of the most important information.
+        All dollar signs escaped.
+        Begin once the files are provided.
+"""
 
         return self.model.stream(
             [
