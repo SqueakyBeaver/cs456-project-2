@@ -3,7 +3,7 @@ import os
 import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-import nest_asyncio
+
 from agent import Agent
 from chat import chat_page
 from database import Base, delete_chat, get_chats, new_chat
@@ -19,51 +19,57 @@ try:
     llamaidx_api_key = os.environ["LLAMAINDEX_API_KEY"]
 except Exception as e:
     print(e)
+    print("bad")
     st.stop()
-
 
 
 print("Initializing DB connection")
 engine = create_engine("sqlite:///app_data.sqlite")
 Base.metadata.create_all(engine)
-db_session = Session(engine)
+db_session = Session(engine, expire_on_commit=False)
 print("DB connection initialized")
 
 print("Initializing agent")
 agent = Agent(gemini_api_key, llamaidx_api_key, engine)
 print("Agent initialized")
 
-# Get largest chat id from db
-st.session_state.chats = get_chats(db_session)
-if not st.session_state.chats:
+if "selected_chat" not in st.session_state:
+    st.session_state.selected_chat = None
+if "chats" not in st.session_state:
+    st.session_state.chats = dict()
+
+if not st.session_state.chats and not get_chats(db_session):
     new_chat(db_session, title="First chat")
-    st.session_state.chats = get_chats(db_session)
 
-last_chat_id = max([i.id for i in st.session_state.chats])
+def update_chats():
+    st.session_state.chats = {}
+    for chat in get_chats(db_session):
+        st.session_state.chats[chat.id] = (chat, chat_page(chat, agent, db_session))
 
 
-@st.fragment
-def chat_list():
+update_chats()
+last_chat_id = max([i for i in st.session_state.chats.keys()])
+
+pg = st.navigation(
+    [pg for _, pg in st.session_state.chats.values()],
+    position="hidden",
+)
+pg.run()
+
+with st.sidebar:
     with st.container(gap=None, height=400, border=False):
-        for chat in st.session_state.chats:
-            container = st.container(
-                horizontal=True, vertical_alignment="center", gap=None
-            )
-            container.page_link(chat_page(chat, agent))
-            if container.button(
-                "", icon=":material/close:", type="tertiary", key=f"{chat}"
-            ):
-                delete_chat(db_session, chat)
-                st.session_state.chats = get_chats(db_session)
-                st.rerun(scope="fragment")
+        for chat, page in st.session_state.chats.values():
+            with st.container(horizontal=True, vertical_alignment="center", gap=None):
+                st.page_link(page)
+                if st.button(
+                    "", icon=":material/close:", type="tertiary", key=f"close-{chat.id}"
+                ):
+                    delete_chat(db_session, chat.id)
+                    update_chats()
+                    st.rerun()
 
         if st.button("New chat", width="stretch"):
             new_chat(db_session, title=f"New Chat {last_chat_id + 1}")
+            update_chats()
+            st.rerun()
 
-            st.session_state.chats = get_chats(db_session)
-            # force a rerun so components are rebuilt with updated chats
-            st.rerun(scope="fragment")
-
-
-with st.sidebar:
-    chat_list()

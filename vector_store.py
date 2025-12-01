@@ -11,6 +11,7 @@ from llama_index.core import SimpleDirectoryReader
 from llama_parse import LlamaParse
 from sqlalchemy import Engine
 from sqlalchemy.orm import sessionmaker
+from streamlit.elements.lib.mutable_status_container import StatusContainer
 
 from database import Base, FileItem, SourceType
 
@@ -34,11 +35,13 @@ class VectorStoreHelper:
         self.model = model
 
         Base.metadata.create_all(engine)
-        self.db_session = sessionmaker(bind=engine)
+        self.db_session = sessionmaker(bind=engine, expire_on_commit=False)
 
-    def add_files(self, files: Sequence[IO[bytes]]):
+    def add_files(self, files: Sequence[IO[bytes]], status: StatusContainer):
         fnames = []
         source_items = {}
+
+        status.update(label="Receiving File")
 
         with self.db_session() as session:
             for i in files:
@@ -48,10 +51,12 @@ class VectorStoreHelper:
 
                 fnames.append(path)
 
-                source_item = FileItem(name=i.name, path=path, type=SourceType.FILE)
+                source_item = FileItem(title=i.name, path=path, type=SourceType.FILE)
                 session.add(source_item)
                 session.commit()
-                source_items[i.name] = source_item.id
+                source_items[i.name] = source_item
+        
+        status.update(label="Retrieving text from file. This may take a moment")
 
         # Just loading data with self.parser does not add any metadata :(
         parsed_docs = SimpleDirectoryReader(
@@ -67,6 +72,9 @@ class VectorStoreHelper:
         )
         all_splits = text_splitter.split_documents(langchain_docs)
 
+
+        status.update(label="Adding file to vector store")
+
         counters = defaultdict(int)
         for d in all_splits:
             for d in all_splits:
@@ -79,7 +87,7 @@ class VectorStoreHelper:
                 d.metadata["page"] = page
                 d.metadata["chunk"] = idx
 
-                d.metadata["src_id"] = source_items[src] or -1
+                d.metadata["src_id"] = source_items[src].id or -1
 
                 if "start_index" in d.metadata:
                     start = d.metadata.get("start_index")
@@ -93,11 +101,15 @@ class VectorStoreHelper:
 
         self.vector_store.add_documents(all_splits)
 
-    def add_urls(self, urls: list[str]):
+        return list(source_items.values())
+
+    def add_urls(self, urls: list[str], status: StatusContainer):
+        status.update(label="Retrieving web page")
         loader = WebBaseLoader(urls)
 
         docs = loader.load()
         source_items = {}
+        status.update(label="Cleaning webpage content. This may take a while.")
         with self.db_session() as session:
             for i in docs:
                 i.page_content = str(
@@ -133,13 +145,13 @@ class VectorStoreHelper:
                 )
                 session.add(source_item)
                 session.commit()
-                source_items[i.metadata["source"]] = source_item.id
+                source_items[i.metadata["source"]] = source_item
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, add_start_index=True
         )
         all_splits = text_splitter.split_documents(docs)
-
+        
         counters = defaultdict(int)
         for d in all_splits:
             src = d.metadata.get("source") or "unknown"
@@ -150,7 +162,7 @@ class VectorStoreHelper:
             # normalize fields
             d.metadata["source"] = src
             d.metadata["title"] = title
-            d.metadata["src_id"] = source_items[src] or -1
+            d.metadata["src_id"] = source_items[src].id or -1
             d.metadata["chunk"] = idx
 
             if "start_index" in d.metadata:
@@ -163,8 +175,10 @@ class VectorStoreHelper:
                 start + len(d.page_content) if start is not None else None
             )
 
+        status.update(label="Adding webpage to vector store")
+
         self.vector_store.add_documents(all_splits)
-        return docs
+        return list(source_items.values())
 
     def similarity_search(self, query: str, k=4):
         return self.vector_store.similarity_search_with_relevance_scores(query, k=k)

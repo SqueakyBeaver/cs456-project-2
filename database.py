@@ -2,7 +2,7 @@ from enum import Enum
 from typing import List, Optional
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, select
+from sqlalchemy import ForeignKey, String, select, Table, Column, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 
@@ -14,6 +14,14 @@ class SourceType(Enum):
 class Base(DeclarativeBase):
     pass
 
+# association table for enabled sources per chat
+chat_enabled_source = Table(
+    "chat_enabled_source",
+    Base.metadata,
+    Column("chat_id", Integer, ForeignKey("chat.id"), primary_key=True),
+    Column("source_item_id", Integer, ForeignKey("source_item.id"), primary_key=True),
+)
+
 
 class FileItem(Base):
     __tablename__ = "source_item"
@@ -23,6 +31,7 @@ class FileItem(Base):
     title: Mapped[str] = mapped_column(String(255))
     path: Mapped[str] = mapped_column(String(1024))
     type: Mapped[SourceType] = mapped_column(SAEnum(SourceType))
+    is_source: Mapped[bool] = mapped_column(default=True)
 
 
 class User(Base):
@@ -70,6 +79,13 @@ class Chat(Base):
         passive_deletes=True,
     )
 
+    # Many-to-many: enabled sources for this chat
+    enabled_sources: Mapped[List["FileItem"]] = relationship(
+        "FileItem",
+        secondary=chat_enabled_source,
+        backref="enabled_in_chats",
+    )
+
     def add_message(
         self,
         session: Session,
@@ -106,23 +122,27 @@ class Chat(Base):
         return msg.id
 
 
-def new_chat(session: Session, user_id=0, title=None, model="gemini-2.5-.pro"):
+def new_chat(session: Session, user_id=0, title=None, model="gemini-2.5-pro"):
     chat = Chat(title=title, model=model)
     session.add(chat)
     session.commit()
-    return chat.id
+    return chat
 
 
 def get_chats(session: Session, user_id: int = 0):
     return list(session.scalars(select(Chat)).all())
 
+def get_sources(session: Session, user_id: int = 0):
+    return list(session.scalars(select(FileItem).where(FileItem.is_source)))
 
 def delete_chat(session: Session, chat_id: int) -> bool:
     """Delete a chat and its messages by id.
 
     Returns True if a row was deleted, False if not found.
     """
+    print(f"Deleting {chat_id}")
     chat = session.get(Chat, chat_id)
+    print(chat)
     if chat is None:
         return False
     session.delete(chat)
