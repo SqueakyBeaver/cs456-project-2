@@ -157,7 +157,7 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
             sources_dialog()
 
         if st.button(f"Summarize {num_enabled_sources}"):
-            agent.summarize([i.raw_bytes for i in chat.enabled_sources])
+            agent.summarize(chat.enabled_sources)
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

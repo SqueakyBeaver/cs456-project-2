@@ -1,0 +1,23 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtualenv
+venv/
+.env
+.venv/
+
+# Git
+.git
+
+# Editor directories
+.vscode/
+.idea/
+
+# Nix and build artifacts
+result/
+
+# Dockerfile and README are included
