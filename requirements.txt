@@ -6,5 +6,6 @@ langchain-text-splitters
 llama-parse
 llama-index
 nest_asyncio
+requests
 streamlit
 validators

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import IO, Sequence
 
+import requests
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.documents.base import Document
@@ -51,11 +52,18 @@ class VectorStoreHelper:
 
                 fnames.append(path)
 
-                source_item = FileItem(title=i.name, path=path, type=SourceType.FILE)
+                i.seek(0)
+
+                source_item = FileItem(
+                    title=i.name,
+                    path=path,
+                    type=SourceType.FILE,
+                    raw_bytes=i.read(),
+                )
                 session.add(source_item)
                 session.commit()
                 source_items[i.name] = source_item
-        
+
         status.update(label="Retrieving text from file. This may take a moment")
 
         # Just loading data with self.parser does not add any metadata :(
@@ -71,7 +79,6 @@ class VectorStoreHelper:
             chunk_size=1000, chunk_overlap=200, add_start_index=True
         )
         all_splits = text_splitter.split_documents(langchain_docs)
-
 
         status.update(label="Adding file to vector store")
 
@@ -105,14 +112,15 @@ class VectorStoreHelper:
 
     def add_urls(self, urls: list[str], status: StatusContainer):
         status.update(label="Retrieving web page")
+        raw_pages = [requests.get(url).content for url in urls]
         loader = WebBaseLoader(urls)
 
         docs = loader.load()
         source_items = {}
         status.update(label="Cleaning webpage content. This may take a while.")
         with self.db_session() as session:
-            for i in docs:
-                i.page_content = str(
+            for raw_page, doc in zip(raw_pages, docs):
+                doc.page_content = str(
                     self.model.invoke(
                         """
                 You are a specialized webpage parser.  
@@ -134,24 +142,25 @@ class VectorStoreHelper:
                 Respond ONLY with the cleaned Markdown.\n\n
                 Here is the page content:\n
                 """
-                        + i.page_content
+                        + doc.page_content
                     ).content
                 )
 
                 source_item = FileItem(
-                    title=i.metadata["title"],
-                    path=i.metadata["source"],
+                    title=doc.metadata["title"],
+                    path=doc.metadata["source"],
                     type=SourceType.WEBPAGE,
+                    raw_bytes=raw_page,
                 )
                 session.add(source_item)
                 session.commit()
-                source_items[i.metadata["source"]] = source_item
+                source_items[doc.metadata["source"]] = source_item
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, add_start_index=True
         )
         all_splits = text_splitter.split_documents(docs)
-        
+
         counters = defaultdict(int)
         for d in all_splits:
             src = d.metadata.get("source") or "unknown"

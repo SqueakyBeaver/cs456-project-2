@@ -68,6 +68,7 @@ with st.sidebar:
                     update_chats()
                     st.rerun()
 
+        st.divider()
         if st.button("New chat", width="stretch"):
             new_chat(db_session, title=f"New Chat {last_chat_id + 1}")
             update_chats()

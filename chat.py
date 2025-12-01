@@ -28,11 +28,18 @@ def validate_url(url: str):
 def _page(chat: Chat, agent: Agent, db_session: Session):
     def source_widget(item: FileItem):
         enabled = item in chat.enabled_sources
-        with st.container(horizontal_alignment="center", key=f"source_item_{item.id}"):
-            with st.container(horizontal=True):
+        with st.container(
+            key=f"source_item_{item.id}",
+            border=True,
+            horizontal_alignment="center",
+        ):
+            with st.container(
+                horizontal=True, gap="medium", horizontal_alignment="distribute"
+            ):
+                # Checkbox for enabling/disabling the source
                 if (
                     st.checkbox(
-                        f"*__{item.title}__*",
+                        "",
                         value=enabled,
                         key=f"source-{item.id}-enabled",
                     )
@@ -46,6 +53,8 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
                     db_session.add(chat)
                     db_session.commit()
 
+                st.markdown(f"### {item.title}", width="content")
+
                 if st.button(
                     "",
                     icon=":material/close:",
@@ -54,13 +63,17 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
                     key=f"remove_source_{item.id}",
                 ):
                     db_session.delete(item)
+                    if item in chat.enabled_sources:
+                        chat.enabled_sources.remove(item)
+                        db_session.add(chat)
                     db_session.commit()
                     st.rerun(scope="fragment")
 
-            st.write(item.path)
+            # Display the path of the source below the controls
+            st.caption(f"{item.path}", width="content")
 
     @st.fragment()
-    @st.dialog("Add Sources", width="large")
+    @st.dialog(title="Add Sources", width="large")
     def sources_dialog():
         urls = []
         files = []
@@ -70,23 +83,35 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
             elif i.type == SourceType.WEBPAGE:
                 urls.append(i)
 
-        left, right = st.columns(2)
+        _, left, right, _ = st.columns([0.1, 0.8, 0.8, 0.1], gap="medium")
         with left:
+            if "should_clear_file" not in st.session_state:
+                st.session_state.should_clear_file = False
+            if st.session_state.should_clear_file:
+                st.session_state.new_source_file = None
+
             st.subheader("Files")
             if src_files := st.file_uploader(
-                "Upload a file here to use it as a source", accept_multiple_files=True
+                "Upload a file here to use it as a source",
+                accept_multiple_files=True,
+                key="new_source_file",
             ):
                 with st.status("Adding file to sources") as status:
                     # Merge FileItem objects into the session before adding
                     chat.enabled_sources += agent.vector_store.add_files(
                         src_files, status
                     )
+
+                    st.session_state.should_clear_file = True
+
                     db_session.add(chat)
                     db_session.commit()
                     status.update(label="File added as a source")
                     st.rerun(scope="fragment")
 
-            with st.container(height=200, border=False):
+            with st.container(
+                height=200, border=False, horizontal_alignment="distribute"
+            ):
                 for i in files:
                     source_widget(i)
 
@@ -121,15 +146,18 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
                 for i in urls:
                     source_widget(i)
 
-    st.title("Ask Away")
+    st.title("Ask away")
 
-    with st.container(horizontal=True):
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
         num_sources = len(get_sources(db_session))
         num_enabled_sources = len(chat.enabled_sources)
         if st.button(
             f"{num_enabled_sources}/{num_sources} sources enabled. Click to add/manage sources"
         ):
             sources_dialog()
+
+        if st.button(f"Summarize {num_enabled_sources}"):
+            agent.summarize([i.raw_bytes for i in chat.enabled_sources])
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

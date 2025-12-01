@@ -1,8 +1,8 @@
 from enum import Enum
 from typing import List, Optional
 
+from sqlalchemy import Column, ForeignKey, Integer, LargeBinary, String, Table, select
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, select, Table, Column, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 
@@ -13,6 +13,7 @@ class SourceType(Enum):
 
 class Base(DeclarativeBase):
     pass
+
 
 # association table for enabled sources per chat
 chat_enabled_source = Table(
@@ -27,7 +28,7 @@ class FileItem(Base):
     __tablename__ = "source_item"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hash: Mapped[Optional[str]]
+    raw_bytes: Mapped[bytes] = mapped_column(LargeBinary())
     title: Mapped[str] = mapped_column(String(255))
     path: Mapped[str] = mapped_column(String(1024))
     type: Mapped[SourceType] = mapped_column(SAEnum(SourceType))
@@ -132,8 +133,10 @@ def new_chat(session: Session, user_id=0, title=None, model="gemini-2.5-pro"):
 def get_chats(session: Session, user_id: int = 0):
     return list(session.scalars(select(Chat)).all())
 
+
 def get_sources(session: Session, user_id: int = 0):
     return list(session.scalars(select(FileItem).where(FileItem.is_source)))
+
 
 def delete_chat(session: Session, chat_id: int) -> bool:
     """Delete a chat and its messages by id.

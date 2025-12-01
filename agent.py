@@ -10,6 +10,7 @@ from langchain_core.messages import FileContentBlock, HumanMessage, TextContentB
 from langchain_google_genai import ChatGoogleGenerativeAI
 from sqlalchemy import Engine
 
+from database import FileItem
 from vector_store import VectorStoreHelper
 
 
@@ -80,6 +81,29 @@ class Agent:
                 HumanMessage(
                     content_blocks=[  # type: ignore
                         TextContentBlock(type="text", text=augmented_message_content),
+                    ]
+                    + file_blocks
+                )
+            ]
+        )
+
+    def summarize(self, files: Sequence[FileItem]):
+        file_blocks = [
+            FileContentBlock(
+                type="file",
+                base64=base64.b64encode(i.raw_bytes).decode(),
+                mime_type=get_mime_type_from_filename(i.title),
+            )
+            for i in files
+        ]
+
+        prompt = ""
+
+        return self.model.stream(
+            [
+                HumanMessage(
+                    content_blocks=[  # type: ignore
+                        TextContentBlock(type="text", text=prompt),
                     ]
                     + file_blocks
                 )
