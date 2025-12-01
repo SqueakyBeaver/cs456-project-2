@@ -1,7 +1,4 @@
-FROM python:3.13-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -12,12 +9,24 @@ RUN apt-get update \
        curl \
     && rm -rf /var/lib/apt/lists/*
 
-
-
-RUN git clone https://github.com/SqueakyBeaver/cs456-project-2/ /app
-
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade cython
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /app/requirements.txt
+    && pip install -r /app/requirements.txt && rm /app/requirements.txt
+
+# RUN git clone https://github.com/SqueakyBeaver/cs456-project-2/ /app
+COPY . /app
+
+RUN useradd --create-home --home-dir /home/appuser --shell /bin/bash appuser \
+    && mkdir -p /home/appuser/app
+
+# Ensure the non-root user owns the application files
+RUN chown -R appuser:appuser /app /home/appuser
+
+RUN pip install --upgrade cython
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && pip install -r /app/requirements.txt
+
 
 EXPOSE 8501
 

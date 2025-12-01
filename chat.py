@@ -39,9 +39,10 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
                 # Checkbox for enabling/disabling the source
                 if (
                     st.checkbox(
-                        "",
+                        "-",
                         value=enabled,
                         key=f"source-{item.id}-enabled",
+                        label_visibility="hidden",
                     )
                     and not enabled
                 ):
@@ -85,11 +86,6 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
 
         _, left, right, _ = st.columns([0.1, 0.8, 0.8, 0.1], gap="medium")
         with left:
-            if "should_clear_file" not in st.session_state:
-                st.session_state.should_clear_file = False
-            if st.session_state.should_clear_file:
-                st.session_state.new_source_file = None
-
             st.subheader("Files")
             if src_files := st.file_uploader(
                 "Upload a file here to use it as a source",
@@ -102,12 +98,9 @@ def _page(chat: Chat, agent: Agent, db_session: Session):
                         src_files, status
                     )
 
-                    st.session_state.should_clear_file = True
-
                     db_session.add(chat)
                     db_session.commit()
                     status.update(label="File added as a source")
-                    st.rerun(scope="fragment")
 
             with st.container(
                 height=200, border=False, horizontal_alignment="distribute"
